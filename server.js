@@ -280,6 +280,28 @@ app.get('/api/products', async (req, res) => {
       handleServerError(res, err);
     }
   });
+
+  app.get('/api/products/:id', async (req, res) => {
+    try {
+      const productId = req.params.id;
+      
+      // التحقق من أن ال ID رقم صحيح
+      if (!Number.isInteger(Number(productId))) {
+        return res.status(400).json({ message: 'معرف المنتج غير صالح' });
+      }
+  
+      const query = 'SELECT * FROM products WHERE id = $1';
+      const { rows } = await pool.query(query, [productId]);
+  
+      if (rows.length === 0) {
+        return res.status(404).json({ message: 'المنتج غير موجود' });
+      }
+  
+      res.json(rows[0]);
+    } catch (err) {
+      handleServerError(res, err);
+    }
+  });
   
   // POST إضافة منتج جديد
   app.post('/api/products', async (req, res) => {
