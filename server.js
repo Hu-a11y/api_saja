@@ -258,28 +258,52 @@ const handleServerError = (res, err) => {
 
 // GET جميع المنتجات
 app.get('/api/products', async (req, res) => {
-    try {
-      const { q } = req.query; // الكلمة المفتاحية للبحث
-      
-      let query = 'SELECT * FROM products';
-      let params = [];
-      
-      if (q) {
-        const searchTerms = q.split(' ').filter(term => term); // تقسيم الكلمات المفتاحية
-        const conditions = searchTerms.map((term, index) => 
-          `(name ILIKE $${index + 1} OR description ILIKE $${index + 1} OR category ILIKE $${index + 1})`
-        ).join(' AND ');
-        
-        query += ` WHERE ${conditions}`;
-        params = searchTerms.map(term => `%${term}%`);
-      }
-      
-      const { rows } = await pool.query(query, params);
-      res.json(rows);
-    } catch (err) {
-      handleServerError(res, err);
+  try {
+    const { 
+      q,
+      page = 1,
+      limit = 8
+    } = req.query;
+
+    const offset = (page - 1) * limit;
+    let query = 'SELECT * FROM products';
+    let params = [];
+    let whereConditions = [];
+
+    if (q) {
+      const searchTerms = q.split(' ').filter(term => term);
+      whereConditions = searchTerms.map((term, index) => 
+        `(name ILIKE $${index + 1} OR description ILIKE $${index + 1} OR category ILIKE $${index + 1})`
+      );
+      params.push(...searchTerms.map(term => `%${term}%`));
     }
-  });
+
+    if (whereConditions.length > 0) {
+      query += ` WHERE ${whereConditions.join(' AND ')}`;
+    }
+
+    query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    params.push(limit, offset);
+
+    // الحصول على البيانات
+    const { rows } = await pool.query(query, params);
+
+    // الحصول على العدد الإجمالي
+    const countQuery = `SELECT COUNT(*) FROM products ${whereConditions.length > 0 ? 'WHERE ' + whereConditions.join(' AND ') : ''}`;
+    const countResult = await pool.query(countQuery, params.slice(0, -2));
+
+    res.json({
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total: parseInt(countResult.rows[0].count),
+      totalPages: Math.ceil(countResult.rows[0].count / limit),
+      data: rows
+    });
+
+  } catch (err) {
+    handleServerError(res, err);
+  }
+});
 
   app.get('/api/products/:id', async (req, res) => {
     try {
