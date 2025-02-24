@@ -101,29 +101,43 @@ app.post('/api/orders', async (req, res) => {
 
 // ------ اقتراحات المنتجات المرتبطة ------
 app.get('/api/products/:id/suggestions', async (req, res) => {
-    try {
+  try {
       const { id } = req.params;
+      const minPercentage = req.query.percentage || 60; // القيمة الافتراضية 60%
+
       const { rows } = await pool.query(`
-        SELECT 
-          p.id,
-          p.name,
-          p.image_url,
-          COUNT(*) AS frequency,
-          AVG(o2.price) AS avg_price 
-        FROM order_items o1
-        JOIN order_items o2 ON o1.order_id = o2.order_id
-        JOIN products p ON o2.product_id = p.id
-        WHERE o1.product_id = $1
-          AND o2.product_id != $1
-        GROUP BY p.id
-        ORDER BY frequency DESC
-        LIMIT 5
-      `, [id]);
-      
+          WITH total_orders AS (
+              SELECT COUNT(DISTINCT o1.order_id)::FLOAT AS total
+              FROM order_items o1
+              WHERE o1.product_id = $1
+          ),
+          product_occurrences AS (
+              SELECT 
+                  p.id,
+                  p.name,
+                  p.image_url,
+                  COUNT(DISTINCT o2.order_id) AS frequency,
+                  AVG(o2.price) AS avg_price,
+                  COUNT(DISTINCT o2.order_id) / (SELECT total FROM total_orders) * 100 AS percentage
+              FROM order_items o1
+              JOIN order_items o2 
+                  ON o1.order_id = o2.order_id
+                  AND o2.product_id != $1
+              JOIN products p ON o2.product_id = p.id
+              WHERE o1.product_id = $1
+              GROUP BY p.id
+          )
+          SELECT *
+          FROM product_occurrences
+          WHERE percentage >= $2
+          ORDER BY frequency DESC
+          LIMIT 5;
+      `, [id, minPercentage]);
+
       res.json(rows);
-    } catch (err) {
+  } catch (err) {
       handleServerError(res, err);
-    }
+  }
 });
 // ------ العلاقات الأكثر تكرارا ------
 app.get('/api/associations', async (req, res) => {
