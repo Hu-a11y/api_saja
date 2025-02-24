@@ -39,8 +39,8 @@ app.post('/api/orders', async (req, res) => {
       for (const item of items) {
         await client.query(
           `INSERT INTO order_items 
-          (order_id, product_id, quantity) -- تأكد من وجود quantity هنا
-          VALUES ($1, $2, $3)`,
+          (order_id, product_id, quantity, price)
+          VALUES ($1, $2, $3, (SELECT price FROM products WHERE id = $2))`,
           [orderRes.rows[0].id, item.product_id, item.quantity]
         );
       }
