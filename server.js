@@ -103,36 +103,29 @@ app.post('/api/orders', async (req, res) => {
 app.get('/api/products/:id/suggestions', async (req, res) => {
   try {
       const { id } = req.params;
-      const minPercentage = req.query.percentage || 60; // القيمة الافتراضية 60%
-
+      const minFrequency = req.query.min_freq || 2; // الحد الأدنى للتكرار
+      
       const { rows } = await pool.query(`
-          WITH total_orders AS (
-              SELECT COUNT(DISTINCT o1.order_id)::FLOAT AS total
-              FROM order_items o1
-              WHERE o1.product_id = $1
-          ),
-          product_occurrences AS (
-              SELECT 
-                  p.id,
-                  p.name,
-                  p.image_url,
-                  COUNT(DISTINCT o2.order_id) AS frequency,
-                  AVG(o2.price) AS avg_price,
-                  COUNT(DISTINCT o2.order_id) / (SELECT total FROM total_orders) * 100 AS percentage
-              FROM order_items o1
-              JOIN order_items o2 
-                  ON o1.order_id = o2.order_id
-                  AND o2.product_id != $1
-              JOIN products p ON o2.product_id = p.id
-              WHERE o1.product_id = $1
-              GROUP BY p.id
+          WITH product_orders AS (
+              SELECT DISTINCT order_id
+              FROM order_items
+              WHERE product_id = $1
           )
-          SELECT *
-          FROM product_occurrences
-          WHERE percentage >= $2
+          SELECT 
+              p.id,
+              p.name,
+              p.image_url,
+              COUNT(po.order_id) AS frequency,
+              AVG(oi.price) AS avg_price
+          FROM product_orders po
+          JOIN order_items oi ON po.order_id = oi.order_id
+          JOIN products p ON oi.product_id = p.id
+          WHERE oi.product_id != $1
+          GROUP BY p.id
+          HAVING COUNT(po.order_id) >= $2
           ORDER BY frequency DESC
           LIMIT 5;
-      `, [id, minPercentage]);
+      `, [id, minFrequency]);
 
       res.json(rows);
   } catch (err) {
