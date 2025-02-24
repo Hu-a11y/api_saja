@@ -123,7 +123,9 @@ app.get('/api/products/:id/suggestions', async (req, res) => {
           )
           SELECT 
               p.id,
-              p.name,
+              p.name, 
+              p.price,
+              p.discription,
               p.image_url,
               co.support,
               AVG(oi.price) AS avg_price
