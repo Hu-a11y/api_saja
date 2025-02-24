@@ -103,35 +103,45 @@ app.post('/api/orders', async (req, res) => {
 app.get('/api/products/:id/suggestions', async (req, res) => {
   try {
       const { id } = req.params;
-      const minFrequency = req.query.min_freq || 2; // الحد الأدنى للتكرار
-      
+      const minSupport = req.query.min_support || 0.1; // الحد الأدنى للدعم
+
       const { rows } = await pool.query(`
           WITH product_orders AS (
               SELECT DISTINCT order_id
               FROM order_items
               WHERE product_id = $1
+          ),
+          co_occurrences AS (
+              SELECT 
+                  oi.product_id,
+                  COUNT(DISTINCT oi.order_id) AS co_occurrence_count,
+                  (COUNT(DISTINCT oi.order_id) * 1.0) / (SELECT COUNT(*) FROM product_orders) AS support
+              FROM product_orders po
+              JOIN order_items oi ON po.order_id = oi.order_id
+              WHERE oi.product_id != $1
+              GROUP BY oi.product_id
           )
           SELECT 
               p.id,
               p.name,
               p.image_url,
-              COUNT(po.order_id) AS frequency,
+              co.support,
               AVG(oi.price) AS avg_price
-          FROM product_orders po
-          JOIN order_items oi ON po.order_id = oi.order_id
-          JOIN products p ON oi.product_id = p.id
-          WHERE oi.product_id != $1
-          GROUP BY p.id
-          HAVING COUNT(po.order_id) >= $2
-          ORDER BY frequency DESC
+          FROM co_occurrences co
+          JOIN products p ON co.product_id = p.id
+          JOIN order_items oi ON oi.product_id = p.id
+          WHERE co.support >= $2
+          GROUP BY p.id, co.support
+          ORDER BY co.support DESC
           LIMIT 5;
-      `, [id, minFrequency]);
+      `, [id, minSupport]);
 
       res.json(rows);
   } catch (err) {
       handleServerError(res, err);
   }
 });
+
 // ------ العلاقات الأكثر تكرارا ------
 app.get('/api/associations', async (req, res) => {
     try {
