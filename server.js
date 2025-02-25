@@ -422,10 +422,16 @@ app.get('/api/categories', async (req, res) => {
   });
 
 
-  ///get product in category 
   app.get('/api/products', async (req, res) => {
     try {
-      const { category, q } = req.query;
+      const { 
+        category, 
+        q,
+        page = 1,
+        limit = 8
+      } = req.query;
+  
+      const offset = (page - 1) * limit;
       let query = 'SELECT * FROM products';
       let params = [];
       let conditions = [];
@@ -439,26 +445,42 @@ app.get('/api/categories', async (req, res) => {
       // بحث عام
       if (q) {
         const searchTerms = q.split(' ');
-        const searchConditions = searchTerms.map(term => 
-          `(name ILIKE $${params.length + 1} OR description ILIKE $${params.length + 1})`
+        const searchConditions = searchTerms.map((term, index) => 
+          `(name ILIKE $${params.length + index + 1} OR description ILIKE $${params.length + index + 1})`
         ).join(' AND ');
+        
         conditions.push(`(${searchConditions})`);
         params.push(...searchTerms.map(term => `%${term}%`));
       }
   
-      // بناء الاستعلام النهائي
+      // بناء الاستعلام الأساسي
       if (conditions.length > 0) {
         query += ' WHERE ' + conditions.join(' AND ');
       }
   
+      // إضافة Pagination
+      query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+      params.push(limit, offset);
+  
+      // الحصول على البيانات
       const { rows } = await pool.query(query, params);
-      res.json(rows);
-      
+  
+      // الحصول على العدد الإجمالي
+      const countQuery = `SELECT COUNT(*) FROM products ${conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : ''}`;
+      const countResult = await pool.query(countQuery, params.slice(0, -2));
+  
+      res.json({
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: parseInt(countResult.rows[0].count),
+        totalPages: Math.ceil(countResult.rows[0].count / limit),
+        data: rows
+      });
+  
     } catch (err) {
       handleServerError(res, err);
     }
   });
-
 
   pool.query('SELECT NOW()', (err) => {
     if (err) {
