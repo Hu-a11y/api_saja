@@ -423,51 +423,39 @@ app.get('/api/categories', async (req, res) => {
 
   app.get('/api/products', async (req, res) => {
     try {
-      const { 
-        category, 
-        q,
-        page = 1,
-        limit = 8
-      } = req.query;
-  
+      const { category, q, page = 1, limit = 8 } = req.query;
       const offset = (page - 1) * limit;
       let query = 'SELECT * FROM products';
       let params = [];
       let conditions = [];
   
-      // فلترة حسب الفئة
-      if (category) {
+      if (category && category !== 'الكل') {
         conditions.push(`category = $${params.length + 1}`);
         params.push(category);
       }
   
-      // بحث عام
       if (q) {
-        const searchTerms = q.split(' ');
-        const searchConditions = searchTerms.map((term, index) => 
+        const searchTerms = q.split(' ').map((_, index) => 
           `(name ILIKE $${params.length + index + 1} OR description ILIKE $${params.length + index + 1})`
-        ).join(' AND ');
-        
-        conditions.push(`(${searchConditions})`);
-        params.push(...searchTerms.map(term => `%${term}%`));
+        );
+        conditions.push(`(${searchTerms.join(' AND ')})`);
+        params.push(...q.split(' ').map(term => `%${term}%`));
       }
   
-      // بناء الاستعلام الأساسي
       if (conditions.length > 0) {
         query += ' WHERE ' + conditions.join(' AND ');
       }
   
-      // إضافة Pagination
       query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
       params.push(limit, offset);
   
-      // الحصول على البيانات
+      console.log('Final Query:', query);
+      console.log('Query Params:', params);
+  
       const { rows } = await pool.query(query, params);
   
-      // الحصول على العدد الإجمالي بشكل صحيح
       const countQuery = `SELECT COUNT(*) FROM products ${conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : ''}`;
-      const countParams = params.slice(0, conditions.length);
-      const countResult = await pool.query(countQuery, countParams);
+      const countResult = await pool.query(countQuery, params.slice(0, -2));
   
       res.json({
         page: parseInt(page),
@@ -478,9 +466,11 @@ app.get('/api/categories', async (req, res) => {
       });
   
     } catch (err) {
+      console.error('Error fetching products:', err);
       handleServerError(res, err);
     }
   });
+  
   
 
   pool.query('SELECT NOW()', (err) => {
