@@ -421,7 +421,6 @@ app.get('/api/categories', async (req, res) => {
     }
   });
 
-
   app.get('/api/products', async (req, res) => {
     try {
       const { 
@@ -465,9 +464,10 @@ app.get('/api/categories', async (req, res) => {
       // الحصول على البيانات
       const { rows } = await pool.query(query, params);
   
-      // الحصول على العدد الإجمالي
+      // الحصول على العدد الإجمالي بشكل صحيح
       const countQuery = `SELECT COUNT(*) FROM products ${conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : ''}`;
-      const countResult = await pool.query(countQuery, params.slice(0, -2));
+      const countParams = params.slice(0, conditions.length);
+      const countResult = await pool.query(countQuery, countParams);
   
       res.json({
         page: parseInt(page),
@@ -481,6 +481,7 @@ app.get('/api/categories', async (req, res) => {
       handleServerError(res, err);
     }
   });
+  
 
   pool.query('SELECT NOW()', (err) => {
     if (err) {
