@@ -276,54 +276,54 @@ const handleServerError = (res, err) => {
 /////////////////
 // ---------- Routes للـ Products ----------
 
-// GET جميع المنتجات
-app.get('/api/products', async (req, res) => {
-  try {
-    const { 
-      q,
-      page = 1,
-      limit = 8
-    } = req.query;
+// // GET جميع المنتجات
+// app.get('/api/products', async (req, res) => {
+//   try {
+//     const { 
+//       q,
+//       page = 1,
+//       limit = 8
+//     } = req.query;
 
-    const offset = (page - 1) * limit;
-    let query = 'SELECT * FROM products';
-    let params = [];
-    let whereConditions = [];
+//     const offset = (page - 1) * limit;
+//     let query = 'SELECT * FROM products';
+//     let params = [];
+//     let whereConditions = [];
 
-    if (q) {
-      const searchTerms = q.split(' ').filter(term => term);
-      whereConditions = searchTerms.map((term, index) => 
-        `(name ILIKE $${index + 1} OR description ILIKE $${index + 1} OR category ILIKE $${index + 1})`
-      );
-      params.push(...searchTerms.map(term => `%${term}%`));
-    }
+//     if (q) {
+//       const searchTerms = q.split(' ').filter(term => term);
+//       whereConditions = searchTerms.map((term, index) => 
+//         `(name ILIKE $${index + 1} OR description ILIKE $${index + 1} OR category ILIKE $${index + 1})`
+//       );
+//       params.push(...searchTerms.map(term => `%${term}%`));
+//     }
 
-    if (whereConditions.length > 0) {
-      query += ` WHERE ${whereConditions.join(' AND ')}`;
-    }
+//     if (whereConditions.length > 0) {
+//       query += ` WHERE ${whereConditions.join(' AND ')}`;
+//     }
 
-    query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-    params.push(limit, offset);
+//     query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+//     params.push(limit, offset);
 
-    // الحصول على البيانات
-    const { rows } = await pool.query(query, params);
+//     // الحصول على البيانات
+//     const { rows } = await pool.query(query, params);
 
-    // الحصول على العدد الإجمالي
-    const countQuery = `SELECT COUNT(*) FROM products ${whereConditions.length > 0 ? 'WHERE ' + whereConditions.join(' AND ') : ''}`;
-    const countResult = await pool.query(countQuery, params.slice(0, -2));
+//     // الحصول على العدد الإجمالي
+//     const countQuery = `SELECT COUNT(*) FROM products ${whereConditions.length > 0 ? 'WHERE ' + whereConditions.join(' AND ') : ''}`;
+//     const countResult = await pool.query(countQuery, params.slice(0, -2));
 
-    res.json({
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: parseInt(countResult.rows[0].count),
-      totalPages: Math.ceil(countResult.rows[0].count / limit),
-      data: rows
-    });
+//     res.json({
+//       page: parseInt(page),
+//       limit: parseInt(limit),
+//       total: parseInt(countResult.rows[0].count),
+//       totalPages: Math.ceil(countResult.rows[0].count / limit),
+//       data: rows
+//     });
 
-  } catch (err) {
-    handleServerError(res, err);
-  }
-});
+//   } catch (err) {
+//     handleServerError(res, err);
+//   }
+// });
 
   app.get('/api/products/:id', async (req, res) => {
     try {
@@ -422,13 +422,18 @@ app.get('/api/categories', async (req, res) => {
   });
   app.get('/api/products', async (req, res) => {
     try {
-      const { category, q } = req.query;
+      const { category, q, page = 1, limit = 8 } = req.query;
+      const offset = (page - 1) * limit;
+      
+      // التحقق من صحة المدخلات
+      const parsedPage = Math.max(1, parseInt(page));
+      const parsedLimit = Math.max(1, Math.min(100, parseInt(limit)));
   
       let baseQuery = `
         SELECT 
           id, 
-          TRIM(name) as name, 
-          TRIM(description) as description, 
+          name, 
+          description, 
           TRIM(category) as category, 
           price::numeric, 
           image_url,
@@ -439,44 +444,75 @@ app.get('/api/categories', async (req, res) => {
       const whereClauses = [];
       const queryParams = [];
   
-      // تصفية الفئة
+      // تصفية الفئة مع معالجة المسافات والحالة
       if (category && category.trim().toLowerCase() !== 'الكل') {
         whereClauses.push(`LOWER(TRIM(category)) = LOWER($${queryParams.length + 1})`);
         queryParams.push(category.trim());
       }
   
-      // بحث في اسم المنتج أو الوصف
+      // بحث نصي متقدم مع تحسين الأداء
       if (q && q.trim().length > 0) {
-        const searchTerm = `%${q.trim()}%`;
-        queryParams.push(searchTerm);
-        whereClauses.push(`(TRIM(name) ILIKE $${queryParams.length} OR TRIM(description) ILIKE $${queryParams.length})`);
+        const searchTerms = q.trim().split(/\s+/);
+        const searchConditions = searchTerms.map((term) => {
+          queryParams.push(`%${term}%`);
+          return `(name ILIKE $${queryParams.length} OR description ILIKE $${queryParams.length})`;
+        });
+        whereClauses.push(`(${searchConditions.join(' AND ')})`);
       }
   
-      // بناء الجزء WHERE
+      // بناء الجزء WHERE مع التحقق من وجود الشروط
       if (whereClauses.length > 0) {
         baseQuery += ` WHERE ${whereClauses.join(' AND ')}`;
       }
   
-      // تنفيذ الاستعلام
-      const result = await pool.query(baseQuery, queryParams);
+      // استعلام العد مع نفس الشروط
+      const countQuery = `
+        SELECT COUNT(*) as total_items 
+        FROM (${baseQuery}) as filtered_products
+      `;
+      
+      // استعلام البيانات مع التقسيم
+      const dataQuery = `
+        ${baseQuery}
+        ORDER BY created_at DESC
+        LIMIT $${queryParams.length + 1}
+        OFFSET $${queryParams.length + 2}
+      `;
+  
+      // تنفيذ الاستعلامات بشكل متوازي
+      const [countResult, dataResult] = await Promise.all([
+        pool.query(countQuery, queryParams),
+        pool.query(dataQuery, [...queryParams, parsedLimit, offset])
+      ]);
+  
+      // معالجة النتائج
+      const totalItems = parseInt(countResult.rows[0].total_items);
+      const totalPages = Math.ceil(totalItems / parsedLimit);
   
       res.json({
         success: true,
-        data: result.rows.map(row => ({
-          id: row.id,
-          name: row.name,
-          description: row.description,
-          category: row.category,
-          price: row.price,
-          imageUrl: row.image_url,
-          createdAt: row.created_at
-        }))
+        page: parsedPage,
+        limit: parsedLimit,
+        totalItems,
+        totalPages,
+        data: dataResult.rows.map(formatProduct)
       });
   
     } catch (err) {
       console.error('فشل جلب المنتجات:', err);
       handleServerError(res, 'حدث خطأ أثناء جلب البيانات');
     }
+  });
+  
+  // دالة مساعدة مُحدَّثة
+  const formatProduct = (row) => ({
+    id: row.id,
+    name: row.name.trim(),
+    description: row.description?.trim() || '',
+    category: row.category.trim(),
+    price: parseFloat(row.price),
+    imageUrl: row.image_url,
+    createdAt: row.created_at
   });
   
 
