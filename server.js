@@ -425,7 +425,6 @@ app.get('/api/categories', async (req, res) => {
       const { category, q, page = 1, limit = 8 } = req.query;
       const offset = (page - 1) * limit;
       
-      // التحقق من صحة المدخلات
       const parsedPage = Math.max(1, parseInt(page));
       const parsedLimit = Math.max(1, Math.min(100, parseInt(limit)));
   
@@ -436,21 +435,18 @@ app.get('/api/categories', async (req, res) => {
           description, 
           TRIM(category) as category, 
           price::numeric, 
-          image_url,
-          created_at
+          image_url
         FROM products
       `;
   
       const whereClauses = [];
       const queryParams = [];
   
-      // تصفية الفئة مع معالجة المسافات والحالة
       if (category && category.trim().toLowerCase() !== 'الكل') {
         whereClauses.push(`LOWER(TRIM(category)) = LOWER($${queryParams.length + 1})`);
         queryParams.push(category.trim());
       }
   
-      // بحث نصي متقدم مع تحسين الأداء
       if (q && q.trim().length > 0) {
         const searchTerms = q.trim().split(/\s+/);
         const searchConditions = searchTerms.map((term) => {
@@ -460,32 +456,28 @@ app.get('/api/categories', async (req, res) => {
         whereClauses.push(`(${searchConditions.join(' AND ')})`);
       }
   
-      // بناء الجزء WHERE مع التحقق من وجود الشروط
       if (whereClauses.length > 0) {
         baseQuery += ` WHERE ${whereClauses.join(' AND ')}`;
       }
   
-      // استعلام العد مع نفس الشروط
       const countQuery = `
         SELECT COUNT(*) as total_items 
-        FROM (${baseQuery}) as filtered_products
+        FROM products
+        ${whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : ''}
       `;
       
-      // استعلام البيانات مع التقسيم
       const dataQuery = `
         ${baseQuery}
-        ORDER BY created_at DESC
+        ORDER BY id DESC
         LIMIT $${queryParams.length + 1}
         OFFSET $${queryParams.length + 2}
       `;
   
-      // تنفيذ الاستعلامات بشكل متوازي
       const [countResult, dataResult] = await Promise.all([
         pool.query(countQuery, queryParams),
         pool.query(dataQuery, [...queryParams, parsedLimit, offset])
       ]);
   
-      // معالجة النتائج
       const totalItems = parseInt(countResult.rows[0].total_items);
       const totalPages = Math.ceil(totalItems / parsedLimit);
   
@@ -504,15 +496,13 @@ app.get('/api/categories', async (req, res) => {
     }
   });
   
-  // دالة مساعدة مُحدَّثة
   const formatProduct = (row) => ({
     id: row.id,
     name: row.name.trim(),
     description: row.description?.trim() || '',
     category: row.category.trim(),
     price: parseFloat(row.price),
-    imageUrl: row.image_url,
-    createdAt: row.created_at
+    imageUrl: row.image_url
   });
   
 
