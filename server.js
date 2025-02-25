@@ -422,7 +422,7 @@ app.get('/api/categories', async (req, res) => {
   });
   app.get('/api/products', async (req, res) => {
     try {
-      const { category, q, page = 1, limit = 8 } = req.query;
+      const { category, q, page = 1, limit = 4 } = req.query;
       const offset = (page - 1) * limit;
       
       const parsedPage = Math.max(1, parseInt(page));
